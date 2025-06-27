@@ -18,10 +18,14 @@ from langchain_groq import ChatGroq
 # ------------------ Initialization ------------------ #
 st.set_page_config(page_title="Agentic RAG Chat", layout="wide")
 st.title("📄 Agentic RAG - PDF Q&A Chat")
-st.secrets["GROQ_API_KEY"]
 
+# Securely load API key
 load_dotenv()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+
+if not GROQ_API_KEY:
+    st.error("🚫 Groq API key not found in secrets or environment. Please check your configuration.")
+    st.stop()
 
 # ------------------ Session Setup ------------------ #
 st.session_state.setdefault("chat_history", [])
@@ -32,39 +36,53 @@ st.session_state.setdefault("chain", None)
 def process_uploaded_pdfs(uploaded_files):
     all_docs = []
     for file in uploaded_files:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(file.read())
-            loader = PyPDFLoader(tmp.name)
-            all_docs.extend(loader.load())
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(file.read())
+                loader = PyPDFLoader(tmp.name)
+                all_docs.extend(loader.load())
+        except Exception as e:
+            st.error(f"❌ Error loading PDF: {file.name} — {str(e)}")
     return all_docs
 
 @st.cache_resource(show_spinner="🔍 Loading HuggingFace Embeddings...")
 def get_embeddings_model():
-    return HuggingFaceEmbeddings()
+    try:
+        return HuggingFaceEmbeddings()
+    except Exception as e:
+        st.error(f"❌ Failed to load embeddings: {str(e)}")
+        st.stop()
 
 @st.cache_resource(show_spinner="🔎 Creating vector store and chain...")
 def create_conversational_chain(_docs, _embeddings_model):
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    chunks = splitter.split_documents(_docs)
-    vectorstore = FAISS.from_documents(chunks, _embeddings_model)
+    try:
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        chunks = splitter.split_documents(_docs)
+        vectorstore = FAISS.from_documents(chunks, _embeddings_model)
 
-    llm = ChatGroq(temperature=0, model_name="Llama3-8b-8192", api_key=GROQ_API_KEY)
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        llm = ChatGroq(temperature=0, model_name="Llama3-8b-8192", api_key=GROQ_API_KEY)
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    return ConversationalRetrievalChain.from_llm(llm=llm, retriever=retriever, memory=memory)
+        return ConversationalRetrievalChain.from_llm(llm=llm, retriever=retriever, memory=memory)
+    except Exception as e:
+        st.error(f"❌ Failed to create the conversation chain: {str(e)}")
+        st.stop()
 
 # ------------------ Chat Functionality ------------------ #
 def handle_user_input():
     user_input = st.chat_input("Ask a question about the uploaded PDFs...")
     if user_input:
-        result = st.session_state.chain.invoke({"question": user_input})
-        answer = result.get("answer", "").strip()
+        try:
+            result = st.session_state.chain.invoke({"question": user_input})
+            answer = result.get("answer", "").strip()
 
-        if not answer or "i don't know" in answer.lower() or len(answer) < 5:
-            answer = "❗ Sorry, I couldn't find an answer to that in the uploaded documents."
+            if not answer or "i don't know" in answer.lower() or len(answer) < 5:
+                answer = "❗ Sorry, I couldn't find an answer to that in the uploaded documents."
 
-        st.session_state.chat_history.extend([("You", user_input), ("AI", answer)])
+            st.session_state.chat_history.extend([("You", user_input), ("AI", answer)])
+        except Exception as e:
+            st.session_state.chat_history.append(("AI", f"❌ Error: {str(e)}"))
 
 def display_chat_history():
     for sender, message in st.session_state.chat_history:
@@ -73,26 +91,34 @@ def display_chat_history():
 
 # ------------------ Export Utilities ------------------ #
 def export_chat_to_pdf(chat_history):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer)
-    text = c.beginText(40, 800)
-    text.setFont("Helvetica", 12)
-    for sender, message in chat_history:
-        for line in f"{sender}: {message}".splitlines():
-            text.textLine(line)
-    c.drawText(text)
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return buffer
+    try:
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer)
+        text = c.beginText(40, 800)
+        text.setFont("Helvetica", 12)
+        for sender, message in chat_history:
+            for line in f"{sender}: {message}".splitlines():
+                text.textLine(line)
+        c.drawText(text)
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"❌ Failed to export PDF: {str(e)}")
+        return None
 
 def export_chat_to_excel(chat_history):
-    df = pd.DataFrame(chat_history, columns=["Sender", "Message"])
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="ChatHistory")
-    buffer.seek(0)
-    return buffer
+    try:
+        df = pd.DataFrame(chat_history, columns=["Sender", "Message"])
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="ChatHistory")
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"❌ Failed to export Excel: {str(e)}")
+        return None
 
 # ------------------ Main App Logic ------------------ #
 uploaded_files = st.file_uploader("Upload PDF files", type=["pdf"], accept_multiple_files=True)
@@ -115,13 +141,15 @@ if st.session_state.chain:
     with col1:
         if st.button("📤 Export as PDF"):
             pdf = export_chat_to_pdf(st.session_state.chat_history)
-            st.download_button("Download PDF", pdf, file_name="chat_session.pdf", mime="application/pdf")
+            if pdf:
+                st.download_button("Download PDF", pdf, file_name="chat_session.pdf", mime="application/pdf")
 
     with col2:
         if st.button("📥 Export as Excel"):
             excel = export_chat_to_excel(st.session_state.chat_history)
-            st.download_button("Download Excel", excel, file_name="chat_session.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            if excel:
+                st.download_button("Download Excel", excel, file_name="chat_session.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with col3:
         if st.button("🔄 Reset Chat"):
