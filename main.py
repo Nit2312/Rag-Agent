@@ -125,4 +125,4 @@ if st.session_state.chain:
     with col3:
         if st.button("🔄 Reset Chat"):
             st.session_state.chat_history = []
-            st.experimental_rerun()
+            st.rerun()
