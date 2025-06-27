@@ -18,6 +18,7 @@ from langchain_groq import ChatGroq
 # ------------------ Initialization ------------------ #
 st.set_page_config(page_title="Agentic RAG Chat", layout="wide")
 st.title("📄 Agentic RAG - PDF Q&A Chat")
+st.secrets["GROQ_API_KEY"]
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
