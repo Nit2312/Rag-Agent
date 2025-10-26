@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_groq import ChatGroq
@@ -155,3 +155,4 @@ if st.session_state.chain:
         if st.button("🔄 Reset Chat"):
             st.session_state.chat_history = []
             st.rerun()
+
